@@ -1,0 +1,17 @@
+[client]
+# 시연 화면에서 개발자용 'Deploy' 버튼·메뉴를 숨긴다
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+# 음식·안전 주제: 차분한 초록을 기본색으로, 빨강(확정)·주황(주의)은 근거 그래프와 같은 색
+base = "light"                       # 그래프 그림이 흰 배경 기준이라 밝은 테마로 고정
+primaryColor = "#2E7D5B"
+backgroundColor = "#FAFAF7"
+secondaryBackgroundColor = "#F0F2EC"
+textColor = "#1E2A24"
+redColor = "#C62828"
+orangeColor = "#D97706"
+greenColor = "#2E7D5B"

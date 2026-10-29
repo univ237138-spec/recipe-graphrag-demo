@@ -1,0 +1,411 @@
+# 레시피·알레르기 온톨로지 v1.2 (2026-10-26)
+#   v1.1: 재료 매핑 검수에서 찾은 빈칸 8개 분류 추가
+#   v1.2: 알레르기의 법적 근거(법령 조항) 클래스·속성 추가, 출처 표기 수정.
+#         조항 데이터는 규정 문서 PDF에서 추출해 regulation.ttl로 자동 생성한다 (src/regulation.py).
+#
+# 설계 근거: 저장소 밖 작업 문서(온톨로지 설계 작업지)에 정리. 주요 판단은 README "기술적 판단"에 있다.
+# 원칙: "무엇인지"(재료 분류)와 "무엇이 들었는지"(알레르기)를 분리한다.
+#   - 재료 분류는 rdfs:subClassOf 계층으로 표현한다.
+#   - 알레르기는 분류에 OWL hasValue 제약으로 붙인다. 하위 분류는 상위 분류의 알레르기를 물려받는다.
+#   - 확정 = rg:definitelyContains, 주의 = rg:mayContain (둘 다 rg:containsAllergen의 하위 속성)
+#   - 레시피의 알레르기는 property chain(hasIngredient → 알레르기)으로 추론한다.
+# 이 파일이 기준 데이터다. allergen_map.csv, categories.csv는 src/ontology.py가 이 파일에서 만든다.
+# 사람이 설계한 것은 이 파일, 문서에서 추출한 것(regulation.ttl)은 따로 둔다. ontology.load()가 둘을 함께 읽는다.
+
+@prefix rg:   <http://example.org/recipe-graphrag#> .
+@prefix al:   <http://example.org/recipe-graphrag/allergen#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<http://example.org/recipe-graphrag> a owl:Ontology ;
+    rdfs:label "레시피·알레르기 온톨로지"@ko ;
+    owl:versionInfo "1.2 (2026-10-26)" ;
+    rdfs:comment "알레르기 기준: 「식품 등의 표시ㆍ광고에 관한 법률 시행규칙」 [별표 2] Ⅰ.1.가 알레르기 유발물질 (별표 2024.12.30 개정, 법령 2026.1.1 시행 현행). 2019년 법 시행 전에는 식약처 고시 「식품등의 표시기준」에 있던 목록이다. 국내 기준만 따르므로 참깨·아몬드 등은 대상이 아니다. 조항 원문과 연결은 regulation.ttl."@ko .
+
+#################################################################
+# 클래스와 속성
+#################################################################
+
+rg:Recipe a owl:Class ; rdfs:label "레시피"@ko .
+rg:Ingredient a owl:Class ; rdfs:label "식재료"@ko .
+rg:Allergen a owl:Class ; rdfs:label "알레르기 유발물질"@ko .
+
+rg:hasIngredient a owl:ObjectProperty ;
+    rdfs:label "재료를 포함한다"@ko ;
+    rdfs:domain rg:Recipe ; rdfs:range rg:Ingredient .
+
+rg:containsAllergen a owl:ObjectProperty ;
+    rdfs:label "알레르기 성분을 함유한다"@ko ;
+    rdfs:range rg:Allergen .
+
+rg:definitelyContains a owl:ObjectProperty ;
+    rdfs:subPropertyOf rg:containsAllergen ;
+    rdfs:label "확정"@ko ;
+    rdfs:comment "그 분류면 반드시 들어 있다."@ko .
+
+rg:mayContain a owl:ObjectProperty ;
+    rdfs:subPropertyOf rg:containsAllergen ;
+    rdfs:label "주의"@ko ;
+    rdfs:comment "제품·조리법에 따라 들어 있을 수 있다. 추천은 하되 경고를 붙인다."@ko .
+
+# 레시피 → 재료 → 알레르기를 이어 레시피의 알레르기를 추론한다 (OWL 2 property chain)
+rg:recipeDefinitelyContains a owl:ObjectProperty ;
+    rdfs:label "레시피 확정 알레르기"@ko ;
+    owl:propertyChainAxiom ( rg:hasIngredient rg:definitelyContains ) .
+
+rg:recipeMayContain a owl:ObjectProperty ;
+    rdfs:label "레시피 주의 알레르기"@ko ;
+    owl:propertyChainAxiom ( rg:hasIngredient rg:mayContain ) .
+
+rg:requiresConfirmation a owl:AnnotationProperty ;
+    rdfs:label "확인 필요"@ko ;
+    rdfs:comment "구성을 알 수 없어 모든 알레르기를 '주의'로 다룬다."@ko .
+
+rg:allergenNote a owl:AnnotationProperty ;
+    rdfs:label "알레르기 판단 근거"@ko .
+
+# 법적 근거 (v1.2): 알레르기 → 법령 조항 → 법령. 데이터는 regulation.ttl (규정 문서 PDF에서 자동 추출)
+rg:Regulation a owl:Class ; rdfs:label "법령"@ko .
+rg:Provision a owl:Class ; rdfs:label "법령 조항"@ko .
+
+rg:definedIn a owl:ObjectProperty ;
+    rdfs:label "법적 근거 조항"@ko ;
+    rdfs:domain rg:Allergen ; rdfs:range rg:Provision .
+
+rg:partOf a owl:ObjectProperty ;
+    rdfs:label "법령의 조항"@ko ;
+    rdfs:domain rg:Provision ; rdfs:range rg:Regulation .
+
+rg:legalTerm a owl:DatatypeProperty ; rdfs:label "법령 원문 표기"@ko ; rdfs:domain rg:Allergen .
+rg:legalCondition a owl:DatatypeProperty ;
+    rdfs:label "법령 조건"@ko ; rdfs:domain rg:Allergen ;
+    rdfs:comment "예: 알류는 가금류만 해당. tests/test_regulation.py가 이 조건을 온톨로지·재료 매핑 검사로 돌린다."@ko .
+rg:provisionId a owl:DatatypeProperty ; rdfs:label "조항 번호"@ko ; rdfs:domain rg:Provision .
+rg:provisionText a owl:DatatypeProperty ; rdfs:label "조항 원문"@ko ; rdfs:domain rg:Provision .
+rg:revised a owl:DatatypeProperty ; rdfs:label "개정일"@ko ; rdfs:domain rg:Regulation .
+rg:effective a owl:DatatypeProperty ; rdfs:label "시행일"@ko ; rdfs:domain rg:Regulation .
+
+#################################################################
+# 알레르기 유발물질 19개 (식품표시광고법 시행규칙 [별표 2] Ⅰ.1.가 표시 대상)
+#################################################################
+
+al:Eggs a rg:Allergen ; rdfs:label "알류"@ko ; rdfs:comment "가금류의 알"@ko .
+al:Milk a rg:Allergen ; rdfs:label "우유"@ko .
+al:Buckwheat a rg:Allergen ; rdfs:label "메밀"@ko .
+al:Peanut a rg:Allergen ; rdfs:label "땅콩"@ko .
+al:Soybean a rg:Allergen ; rdfs:label "대두"@ko .
+al:Wheat a rg:Allergen ; rdfs:label "밀"@ko .
+al:Mackerel a rg:Allergen ; rdfs:label "고등어"@ko .
+al:Crab a rg:Allergen ; rdfs:label "게"@ko .
+al:Shrimp a rg:Allergen ; rdfs:label "새우"@ko .
+al:Pork a rg:Allergen ; rdfs:label "돼지고기"@ko .
+al:Peach a rg:Allergen ; rdfs:label "복숭아"@ko .
+al:Tomato a rg:Allergen ; rdfs:label "토마토"@ko .
+al:Sulfites a rg:Allergen ; rdfs:label "아황산류"@ko .
+al:Walnut a rg:Allergen ; rdfs:label "호두"@ko .
+al:Chicken a rg:Allergen ; rdfs:label "닭고기"@ko .
+al:Beef a rg:Allergen ; rdfs:label "쇠고기"@ko .
+al:Squid a rg:Allergen ; rdfs:label "오징어"@ko .
+al:Shellfish a rg:Allergen ; rdfs:label "조개류"@ko ; rdfs:comment "굴·전복·홍합 포함"@ko .
+al:PineNut a rg:Allergen ; rdfs:label "잣"@ko .
+
+#################################################################
+# 유제품 → 우유(확정)
+#################################################################
+
+rg:DairyProduct a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "유제품"@ko ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Milk ] ;
+    rg:allergenNote "우유: 우유로 만든 식품"@ko .
+rg:Milk a owl:Class ; rdfs:subClassOf rg:DairyProduct ; rdfs:label "우유류"@ko ; skos:example "우유, 저지방우유, 연유, 분유" .
+rg:Butter a owl:Class ; rdfs:subClassOf rg:DairyProduct ; rdfs:label "버터"@ko ; skos:example "버터, 무염버터" .
+rg:Cream a owl:Class ; rdfs:subClassOf rg:DairyProduct ; rdfs:label "크림"@ko ; skos:example "생크림, 휘핑크림, 사워크림" .
+rg:Cheese a owl:Class ; rdfs:subClassOf rg:DairyProduct ; rdfs:label "치즈"@ko ; skos:example "치즈, 파마산치즈, 모짜렐라치즈, 크림치즈, 리코타치즈" .
+rg:FermentedMilk a owl:Class ; rdfs:subClassOf rg:DairyProduct ; rdfs:label "발효유"@ko ; skos:example "요거트, 플레인요거트, 요구르트" .
+
+#################################################################
+# 알류 → 알류(확정)
+#################################################################
+
+rg:EggProduct a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "알류"@ko ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Eggs ] ;
+    rg:allergenNote "알류: 가금류의 알"@ko .
+rg:ChickenEgg a owl:Class ; rdfs:subClassOf rg:EggProduct ; rdfs:label "달걀"@ko ; skos:example "달걀, 계란, 노른자, 흰자, 달걀물, 달걀지단" .
+rg:QuailEgg a owl:Class ; rdfs:subClassOf rg:EggProduct ; rdfs:label "메추리알"@ko ; skos:example "메추리알" .
+
+#################################################################
+# 곡물·가루·면
+#################################################################
+
+rg:GrainFlourNoodle a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "곡물·가루·면"@ko .
+
+rg:WheatFlour a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "밀가루류"@ko ;
+    skos:example "밀가루, 박력분, 부침가루, 튀김가루, 빵가루" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀: 밀가루가 주원료"@ko .
+rg:Bread a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "빵류"@ko ;
+    skos:example "식빵, 바게트, 또띠아, 치아바타" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀: 밀가루가 주원료"@ko .
+rg:WheatNoodle a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "밀면류"@ko ;
+    skos:example "라면, 스파게티, 파스타, 소면, 우동, 만두피, 마카로니" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀: 밀가루가 주원료"@ko .
+rg:Buckwheat a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "메밀류"@ko ;
+    skos:example "메밀가루, 메밀묵" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Buckwheat ] ;
+    rg:allergenNote "메밀: 메밀이 주원료"@ko .
+rg:BuckwheatNoodle a owl:Class ; rdfs:subClassOf rg:Buckwheat ; rdfs:label "메밀면"@ko ;
+    skos:example "메밀면, 냉면용 메밀면" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀(주의): 시판 메밀면은 밀가루를 섞는 경우가 많음"@ko .
+rg:RiceCake a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "떡류"@ko ;
+    skos:example "떡볶이떡, 떡국떡" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀(주의): 밀떡인지 쌀떡인지 원문만으로 알 수 없음"@ko .
+rg:Confectionery a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "제과류"@ko ;
+    skos:example "카스텔라, 카스테라, 카스텔라가루, 케이크, 쿠키" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Wheat ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Eggs ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Milk ] ;
+    rg:allergenNote "밀·알류: 밀가루와 달걀이 주원료 / 우유(주의): 버터·우유를 넣는 제품이 많음 (v1.1 추가)"@ko .
+rg:RiceAndGrain a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "쌀·잡곡"@ko ;
+    skos:example "쌀, 현미, 찹쌀, 보리, 귀리, 오트밀, 퀴노아, 쌀떡, 가래떡, 절편, 조랭이떡" ;
+    rdfs:comment "이름으로 쌀떡임을 알 수 있는 떡은 여기로 (v1.1 결정)"@ko .
+rg:StarchAndGlassNoodle a owl:Class ; rdfs:subClassOf rg:GrainFlourNoodle ; rdfs:label "전분·당면·곤약"@ko ;
+    skos:example "감자전분, 녹말가루, 당면, 곤약" .
+
+#################################################################
+# 콩류
+#################################################################
+
+rg:Legume a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "콩류"@ko .
+rg:SoybeanProduct a owl:Class ; rdfs:subClassOf rg:Legume ; rdfs:label "대두·대두가공품"@ko ;
+    skos:example "대두, 검은콩(서리태), 두부, 연두부, 순두부, 두부면, 두유, 콩가루, 콩나물, 유부, 콩기름(대두유)" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Soybean ] ;
+    rg:allergenNote "대두: 대두와 그 가공품. 콩나물은 대두의 싹, 서리태는 대두 품종, 콩기름은 대두 기름"@ko .
+rg:OtherLegume a owl:Class ; rdfs:subClassOf rg:Legume ; rdfs:label "기타 콩"@ko ;
+    skos:example "완두콩, 강낭콩, 병아리콩, 팥, 녹두" ;
+    rdfs:comment "대두와 다른 콩. 국내 표시 대상 아님"@ko .
+
+#################################################################
+# 견과·씨앗
+#################################################################
+
+rg:NutAndSeed a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "견과·씨앗"@ko .
+rg:PeanutProduct a owl:Class ; rdfs:subClassOf rg:NutAndSeed ; rdfs:label "땅콩류"@ko ;
+    skos:example "땅콩, 땅콩버터, 땅콩잼, 땅콩가루" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Peanut ] ;
+    rg:allergenNote "땅콩: 땅콩이 주원료. 대두와는 다른 알레르기. 땅콩버터의 '버터'는 유제품이 아님"@ko .
+rg:Walnut a owl:Class ; rdfs:subClassOf rg:NutAndSeed ; rdfs:label "호두"@ko ;
+    skos:example "호두, 깐호두" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Walnut ] .
+rg:PineNut a owl:Class ; rdfs:subClassOf rg:NutAndSeed ; rdfs:label "잣"@ko ;
+    skos:example "잣, 잣가루" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:PineNut ] .
+rg:MixedNuts a owl:Class ; rdfs:subClassOf rg:NutAndSeed ; rdfs:label "혼합 견과"@ko ;
+    skos:example "견과류, 혼합견과, 혼합견과류" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Peanut ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Walnut ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:PineNut ] ;
+    rg:allergenNote "땅콩·호두·잣(주의): 종류가 적혀 있지 않은 견과 혼합 (v1.1 추가)"@ko .
+rg:OtherNutAndSeed a owl:Class ; rdfs:subClassOf rg:NutAndSeed ; rdfs:label "기타 견과·씨앗"@ko ;
+    skos:example "아몬드, 캐슈넛, 코코넛, 참깨, 들깨, 해바라기씨" ;
+    rdfs:comment "국내 표시 대상 아님 (참깨는 외국 기준에서는 대상)"@ko .
+
+#################################################################
+# 육류 (동물별로 분류. 부위명은 돼지·소에 공통이므로 기준으로 쓰지 않는다)
+#################################################################
+
+rg:Meat a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "육류"@ko .
+rg:PorkMeat a owl:Class ; rdfs:subClassOf rg:Meat ; rdfs:label "돼지고기"@ko ;
+    skos:example "돼지고기, 삼겹살, 돼지등심, 돼지갈비, 다짐육(돼지)" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Pork ] ;
+    rg:allergenNote "돼지고기: 부위가 아니라 동물로 판단"@ko .
+rg:ProcessedPork a owl:Class ; rdfs:subClassOf rg:PorkMeat ; rdfs:label "돼지고기 가공품"@ko ;
+    skos:example "베이컨, 햄, 스팸, 소시지, 살라미" ;
+    rg:allergenNote "돼지고기: 베이컨·햄·스팸·소시지는 돼지고기 가공품"@ko .
+rg:BeefMeat a owl:Class ; rdfs:subClassOf rg:Meat ; rdfs:label "쇠고기"@ko ;
+    skos:example "소고기, 쇠고기, 양지, 차돌박이, 우삼겹, 우민찌, 사골육수" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Beef ] ;
+    rg:allergenNote "쇠고기: 사골육수는 소뼈를 우린 것. 우삼겹의 '삼겹'은 모양을 뜻함"@ko .
+rg:ChickenMeat a owl:Class ; rdfs:subClassOf rg:Meat ; rdfs:label "닭고기"@ko ;
+    skos:example "닭가슴살, 닭다리살, 닭봉, 닭육수, 치킨스톡" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Chicken ] ;
+    rg:allergenNote "닭고기: 닭육수·치킨스톡 포함"@ko .
+rg:OtherMeat a owl:Class ; rdfs:subClassOf rg:Meat ; rdfs:label "기타 육류"@ko ;
+    skos:example "오리고기, 양고기" .
+
+#################################################################
+# 수산물 (법정 알레르기가 갈래마다 달라서 5갈래로 나눈다)
+#################################################################
+
+rg:Seafood a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "수산물"@ko .
+
+rg:Fish a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "생선"@ko .
+rg:MackerelFish a owl:Class ; rdfs:subClassOf rg:Fish ; rdfs:label "고등어"@ko ;
+    skos:example "고등어, 냉동고등어" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Mackerel ] .
+rg:OtherFish a owl:Class ; rdfs:subClassOf rg:Fish ; rdfs:label "기타 생선"@ko ;
+    skos:example "삼치, 대구, 광어, 연어, 참치, 황태, 멸치, 가다랑어포" .
+
+rg:Crustacean a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "갑각류"@ko .
+rg:ShrimpFood a owl:Class ; rdfs:subClassOf rg:Crustacean ; rdfs:label "새우류"@ko ;
+    skos:example "새우, 칵테일새우, 건새우, 새우젓, 새우가루" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Shrimp ] ;
+    rg:allergenNote "새우: 새우젓·새우가루도 새우로 만듦"@ko .
+rg:CrabFood a owl:Class ; rdfs:subClassOf rg:Crustacean ; rdfs:label "게류"@ko ;
+    skos:example "꽃게, 게살, 대게" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Crab ] .
+rg:ImitationCrab a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "게맛살류"@ko ;
+    skos:example "게맛살, 크래미" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Crab ] ;
+    rg:allergenNote "게(주의): 주원료는 생선살(연육)이지만 게 추출물을 넣는 제품이 있음"@ko .
+
+rg:FishCake a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "어묵·연육"@ko ;
+    skos:example "어묵, 찐 어묵, 찰어묵" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀(주의): 생선살에 밀가루를 섞는 제품이 많음 (v1.1 추가)"@ko .
+
+rg:ShellfishFood a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "조개류"@ko ;
+    skos:example "굴, 전복, 홍합, 바지락, 모시조개, 꼬막, 가리비, 관자, 소라, 우렁이" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Shellfish ] ;
+    rg:allergenNote "조개류: 법정 조개류에 굴·전복·홍합 포함. 소라·우렁이는 전복과 같은 고둥류라 같은 기준 적용(안전 쪽 판단)"@ko .
+
+rg:Mollusk a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "연체류"@ko .
+rg:SquidFood a owl:Class ; rdfs:subClassOf rg:Mollusk ; rdfs:label "오징어류"@ko ;
+    skos:example "오징어, 건오징어, 한치" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Squid ] .
+rg:OtherMollusk a owl:Class ; rdfs:subClassOf rg:Mollusk ; rdfs:label "기타 연체류"@ko ;
+    skos:example "문어, 낙지, 주꾸미" .
+
+rg:SeaweedAndOther a owl:Class ; rdfs:subClassOf rg:Seafood ; rdfs:label "해조류·기타"@ko ;
+    skos:example "김, 미역, 다시마, 매생이, 멍게" ;
+    rdfs:comment "멍게는 갑각류가 아니라 피낭류"@ko .
+
+#################################################################
+# 채소·과일
+#################################################################
+
+rg:VegetableAndMushroom a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "채소·버섯"@ko ;
+    skos:example "양파, 마늘, 대파, 당근, 감자, 애호박, 표고버섯, 돼지호박, 땅콩호박, 돼지감자" ;
+    rdfs:comment "돼지호박·땅콩호박·돼지감자는 이름만 비슷한 채소"@ko .
+rg:Kimchi a owl:Class ; rdfs:subClassOf rg:VegetableAndMushroom ; rdfs:label "김치류"@ko ;
+    skos:example "김치, 배추김치, 김장김치, 깍두기, 열무김치, 석박지, 묵은지, 명이김치, 총각김치, 백김치, 동치미, 물김치국물" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Shrimp ] ;
+    rg:allergenNote "새우(주의): 새우젓을 넣는 경우가 많음. 백김치·동치미도 새우젓을 넣는 레시피가 있어 포함 (v1.1 추가)"@ko .
+rg:TomatoFood a owl:Class ; rdfs:subClassOf rg:VegetableAndMushroom ; rdfs:label "토마토류"@ko ;
+    skos:example "토마토, 방울토마토, 홀토마토" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Tomato ] .
+
+rg:Fruit a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "과일"@ko ;
+    skos:example "사과, 배, 딸기, 레몬, 바나나, 후르츠칵테일" .
+rg:PeachFood a owl:Class ; rdfs:subClassOf rg:Fruit ; rdfs:label "복숭아류"@ko ;
+    skos:example "복숭아, 천도복숭아, 황도" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Peach ] .
+rg:DriedFruit a owl:Class ; rdfs:subClassOf rg:Fruit ; rdfs:label "말린 과일"@ko ;
+    skos:example "건포도, 곶감, 건크랜베리" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Sulfites ] ;
+    rg:allergenNote "아황산류(주의): 색·보존을 위해 아황산을 쓰는 경우가 많지만 제품마다 다름"@ko .
+
+#################################################################
+# 장류·소스·양념 (재료 형태로 분류하고, 들어 있는 성분은 알레르기로 여러 개 연결)
+#################################################################
+
+rg:SauceAndSeasoning a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "장류·소스·양념"@ko .
+
+rg:SoySauce a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "간장"@ko ;
+    skos:example "간장, 저염간장, 맛간장, 국간장, 진간장" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Soybean ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "대두: 메주(대두)로 만듦 / 밀(주의): 밀을 원료로 쓰는 제품과 안 쓰는 제품이 있음"@ko .
+rg:Doenjang a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "된장"@ko ;
+    skos:example "된장, 저염된장, 미소, 청국장" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Soybean ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "대두: 메주(대두)로 만듦 / 밀(주의): 일부 제품에 밀이 들어감"@ko .
+rg:Gochujang a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "고추장·쌈장"@ko ;
+    skos:example "고추장, 쌈장, 초고추장" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Soybean ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "대두: 메주(대두)로 만듦 / 밀(주의): 밀가루를 쓰는 제품이 많음"@ko .
+rg:ChineseSoybeanPaste a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "중화 장류"@ko ;
+    skos:example "두반장, 춘장, 해선장" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Soybean ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "대두: 콩을 발효한 장 / 밀(주의): 밀가루를 쓰는 제품이 많음 (v1.1 추가)"@ko .
+rg:Pesto a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "페스토"@ko ;
+    skos:example "바질 페스토, 바질페스토, 잣 바질페이소스" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:PineNut ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Milk ] ;
+    rg:allergenNote "잣: 바질 페스토의 기본 재료 / 우유(주의): 파르메산 치즈를 넣는 경우가 많음 (v1.1 추가)"@ko .
+rg:OysterSauce a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "굴소스"@ko ;
+    skos:example "굴소스" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Shellfish ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Soybean ] ;
+    rg:allergenNote "조개류: 굴 추출물이 주원료 / 밀·대두(주의): 간장·밀가루가 들어가는 제품이 많음"@ko .
+rg:Mayonnaise a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "마요네즈"@ko ;
+    skos:example "마요네즈" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Eggs ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Soybean ] ;
+    rg:allergenNote "알류: 달걀노른자가 주원료 / 대두(주의): 대두유를 쓰는 제품이 있음"@ko .
+rg:TomatoSauce a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "토마토 소스류"@ko ;
+    skos:example "케첩, 토마토소스, 토마토페이스트" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:definitelyContains ; owl:hasValue al:Tomato ] ;
+    rg:allergenNote "토마토: 가공품도 원재료의 알레르기를 따른다"@ko .
+rg:Curry a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "카레"@ko ;
+    skos:example "카레가루, 카레 루" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Milk ] ;
+    rg:allergenNote "밀·우유(주의): 카레 가루·루에 밀가루·분유를 넣는 제품이 많음"@ko .
+rg:FishSauce a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "젓갈·액젓"@ko ;
+    skos:example "멸치액젓, 까나리액젓, 멸치젓" ;
+    rdfs:comment "새우젓은 새우류로 분류한다"@ko .
+rg:FishSoySauce a owl:Class ; rdfs:subClassOf rg:FishSauce ; rdfs:label "어간장"@ko ;
+    skos:example "어간장" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Soybean ] ;
+    rg:allergenNote "대두(주의): 생선으로 만들지만 간장을 섞는 제품이 있음"@ko .
+rg:BasicSeasoning a owl:Class ; rdfs:subClassOf rg:SauceAndSeasoning ; rdfs:label "기본 양념"@ko ;
+    skos:example "소금, 설탕, 식초, 후추, 고춧가루, 참기름, 식용유, 올리고당, 꿀, 물" .
+
+#################################################################
+# 주류
+#################################################################
+
+rg:Alcohol a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "주류"@ko .
+rg:Wine a owl:Class ; rdfs:subClassOf rg:Alcohol ; rdfs:label "와인류"@ko ;
+    skos:example "와인, 화이트와인, 레드와인" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Sulfites ] ;
+    rg:allergenNote "아황산류(주의): 대부분 아황산을 넣지만 표시 기준(잔류량)은 제품마다 다름"@ko .
+rg:Makgeolli a owl:Class ; rdfs:subClassOf rg:Alcohol ; rdfs:label "막걸리·맥주"@ko ;
+    skos:example "막걸리, 맥주" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Wheat ] ;
+    rg:allergenNote "밀(주의): 쌀 막걸리와 밀 막걸리가 있음 (평가 질문 C5). 맥주도 밀을 쓰는 제품이 있음 (v1.1)"@ko .
+rg:OtherAlcohol a owl:Class ; rdfs:subClassOf rg:Alcohol ; rdfs:label "기타 주류"@ko ;
+    skos:example "청주, 정종, 맛술, 소주" .
+
+#################################################################
+# 초콜릿, 음료·첨가물 (v1.1 추가)
+#################################################################
+
+rg:Chocolate a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "초콜릿"@ko ;
+    skos:example "초콜릿, 다크초콜릿, 블랙초콜릿" ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Milk ] ,
+                    [ a owl:Restriction ; owl:onProperty rg:mayContain ; owl:hasValue al:Soybean ] ;
+    rg:allergenNote "우유·대두(주의): 분유와 대두 레시틴을 넣는 제품이 많음. 화이트 초콜릿은 유제품으로 분류"@ko .
+
+rg:BeverageAndAdditive a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "음료·첨가물"@ko ;
+    skos:example "커피, 사이다, 녹차, 얼음, 이스트, 드라이이스트, 젤라틴, 판젤라틴, 베이킹파우더, 베이킹소다" ;
+    rdfs:comment "알레르기와 관계없는 음료·제빵 첨가물 (정리용)"@ko .
+
+#################################################################
+# 구성 불명 → 확인 필요 (평가 질문 결정 사항: 모르는 재료는 '주의')
+#################################################################
+
+rg:UnknownComposition a owl:Class ; rdfs:subClassOf rg:Ingredient ; rdfs:label "구성 불명"@ko ;
+    skos:example "양념장(재료가 적혀 있지 않은 경우)" ;
+    rg:requiresConfirmation true ;
+    rg:allergenNote "무엇이 들었는지 모르므로 모든 알레르기를 '주의'로 다룬다"@ko .

@@ -1,0 +1,92 @@
+# 자동 생성 파일: python src/regulation.py (손으로 고치지 않는다)
+# 출처: 식품표시광고법 시행규칙 [별표 2] PDF, 법령 XML과 교차 검증. data/regulation/source.json
+
+@prefix al: <http://example.org/recipe-graphrag/allergen#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix reg: <http://example.org/recipe-graphrag/regulation#> .
+@prefix rg: <http://example.org/recipe-graphrag#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+al:Beef rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "쇠고기"@ko .
+
+al:Buckwheat rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "메밀"@ko .
+
+al:Chicken rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "닭고기"@ko .
+
+al:Crab rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "게"@ko .
+
+al:Eggs rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalCondition "가금류만 해당한다"@ko ;
+    rg:legalTerm "알류(가금류만 해당한다)"@ko .
+
+al:Mackerel rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "고등어"@ko .
+
+al:Milk rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "우유"@ko .
+
+al:Peach rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "복숭아"@ko .
+
+al:Peanut rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "땅콩"@ko .
+
+al:PineNut rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "잣"@ko .
+
+al:Pork rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "돼지고기"@ko .
+
+al:Shellfish rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalCondition "굴, 전복, 홍합을 포함한다"@ko ;
+    rg:legalTerm "조개류(굴, 전복, 홍합을 포함한다)"@ko .
+
+al:Shrimp rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "새우"@ko .
+
+al:Soybean rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "대두"@ko .
+
+al:Squid rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "오징어"@ko .
+
+al:Sulfites rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalCondition "이를 첨가하여 최종 제품에 이산화황이 1킬로그램당 10밀리그램 이상 함유된 경우만 해당한다"@ko ;
+    rg:legalTerm "아황산류(이를 첨가하여 최종 제품에 이산화황이 1킬로그램당 10밀리그램 이상 함유된 경우만 해당한다)"@ko .
+
+al:Tomato rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "토마토"@ko .
+
+al:Walnut rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "호두"@ko .
+
+al:Wheat rg:definedIn reg:Appendix2_I_1_ga ;
+    rg:legalTerm "밀"@ko .
+
+reg:Appendix2_I_1_na a rg:Provision ;
+    rdfs:label "별표2-Ⅰ-1-나 표시 대상"@ko ;
+    rg:partOf reg:FoodLabelingAdRule_Appendix2 ;
+    rg:provisionId "별표2-Ⅰ-1-나" ;
+    rg:provisionText """1) 가목의 알레르기 유발물질을 원재료로 사용한 식품등
+2) 1)의 식품등으로부터 추출 등의 방법으로 얻은 성분을 원재료로 사용한 식품등
+3) 1) 및 2)를 함유한 식품등을 원재료로 사용한 식품등"""@ko .
+
+reg:FoodLabelingAdRule_Appendix2 a rg:Regulation ;
+    rdfs:label "식품 등의 표시ㆍ광고에 관한 법률 시행규칙 [별표 2] 소비자 안전을 위한 표시사항(제5조제1항 관련)"@ko ;
+    rg:effective "2026-01-01"^^xsd:date ;
+    rg:revised "2024-12-30"^^xsd:date ;
+    rdfs:seeAlso <https://www.law.go.kr/LSW/flDownload.do?flSeq=147458253> .
+
+reg:Appendix2_I_1_ga a rg:Provision ;
+    rdfs:label "별표2-Ⅰ-1-가 알레르기 유발물질"@ko ;
+    rg:partOf reg:FoodLabelingAdRule_Appendix2 ;
+    rg:provisionId "별표2-Ⅰ-1-가" ;
+    rg:provisionText """알류(가금류만 해당한다), 우유, 메밀, 땅콩, 대두, 밀, 고등어, 게, 새우, 돼지고기, 복숭
+아, 토마토, 아황산류(이를 첨가하여 최종 제품에 이산화황이 1킬로그램당 10밀리그램
+이상 함유된 경우만 해당한다), 호두, 닭고기, 쇠고기, 오징어, 조개류(굴, 전복, 홍합을
+포함한다), 잣"""@ko .
+
