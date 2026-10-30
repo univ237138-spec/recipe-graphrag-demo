@@ -8,6 +8,7 @@
   - OpenAI가 안 되면 예시 질문은 미리 정한 조건으로 동작한다
 """
 
+import base64
 import csv
 import html
 import json
@@ -88,10 +89,12 @@ BASE_CONDITIONS = {"intent": "recommend", "recipe_name": "", "exclude_allergens"
 VERDICT = {"unsafe": (st.error, "🚫 먹으면 안 됨"), "caution": (st.warning, "⚠️ 주의 필요 (제품에 따라 들어 있을 수 있음)"),
            "safe": (st.success, "✅ 먹어도 됨 (레시피 원문 기준)")}
 
-st.set_page_config(page_title="레시피·알레르기 GraphRAG", page_icon="🥗", layout="wide")
+# 10/30 프로젝트 엠블럼 (방패 + 그릇 + 지식그래프 경로): 브라우저 탭 아이콘, 제목, 챗봇 아이콘에 쓴다
+EMBLEM = ROOT / "assets" / "emblem.png"
+st.set_page_config(page_title="레시피·알레르기 GraphRAG", page_icon=str(EMBLEM), layout="wide")
 
 # 채팅 말풍선 (10/30): 내 질문은 오른쪽 초록 말풍선, 챗봇 답은 왼쪽 흰 말풍선. 색은 .streamlit/config.toml 테마와 같다.
-# Streamlit은 질문(기본 아바타)에 stChatMessageAvatarUser를 붙이고, 이모지 아바타(🥗 챗봇)에는 이름표가 없다.
+# Streamlit은 질문(기본 아바타)에 stChatMessageAvatarUser, 이미지 아바타(엠블럼 챗봇)는 이름표 없는 <img>로 그린다.
 # 그래서 챗봇 답은 '질문이 아닌 메시지'로 고른다.
 CHAT_CSS = """
 <style>
@@ -114,9 +117,9 @@ CHAT_CSS = """
     padding: 0.75rem 1.1rem; border-radius: 18px 18px 18px 4px; box-shadow: 0 1px 2px rgba(30, 42, 36, 0.06);
 }
 /* 아이콘: 두 쪽 같은 크기, 챗봇은 연초록 원, 질문은 차분한 회녹색 (빨강은 '확정 알레르기' 색이라 피함) */
-[data-testid="stChatMessage"] > div:first-child { width: 2.25rem; height: 2.25rem; flex: 0 0 2.25rem; margin-top: 0.15rem; }
-[data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"])) > div:first-child {
-    background: #DCEFE4; border-radius: 50%; font-size: 1.15rem;
+[data-testid="stChatMessage"] > :first-child { width: 2.25rem; height: 2.25rem; flex: 0 0 2.25rem; margin-top: 0.15rem; }
+[data-testid="stChatMessage"]:not(:has([data-testid="stChatMessageAvatarUser"])) > :first-child {
+    background: #DCEFE4; border-radius: 50%; padding: 0.3rem; box-sizing: border-box; object-fit: contain;
 }
 [data-testid="stChatMessageAvatarUser"] { background: #8A948C; border-radius: 50%; }
 /* 간격: 말풍선 안 요소 사이와 메시지 사이를 좁힘 */
@@ -449,7 +452,7 @@ def show_message(message, latest):
         with st.chat_message("user"):
             st.markdown(message["content"])
     else:
-        with st.chat_message("assistant", avatar="🥗"):
+        with st.chat_message("assistant", avatar=str(EMBLEM)):
             show_reply(message, latest)
 
 
@@ -560,7 +563,11 @@ def recipe_dot(recipe_id, focus=(), show_all=False):
 
 # ---------------------------------------------------------------- 화면
 
-st.title("🥗 레시피·알레르기 GraphRAG")
+st.markdown(  # 제목 앞 엠블럼 (st.title은 이미지를 못 넣어 HTML로)
+    '<div style="display:flex;align-items:center;gap:0.75rem;margin:0.4rem 0 0.2rem">'
+    f'<img src="data:image/png;base64,{base64.b64encode(EMBLEM.read_bytes()).decode()}" '
+    'alt="엠블럼" style="height:3.1rem">'
+    '<h1 style="margin:0;padding:0">레시피·알레르기 GraphRAG</h1></div>', unsafe_allow_html=True)
 st.caption("식약처 레시피 1,156개 · OWL 온톨로지(분류 74개, 알레르기 19개) · Neo4j 지식그래프 · "
            "**LLM은 말을 다루고, 안전 판단은 그래프가 한다**")
 
@@ -582,7 +589,7 @@ with tab_ask:
 
     with chat_box:
         if not messages and not pending:
-            with st.chat_message("assistant", avatar="🥗"):
+            with st.chat_message("assistant", avatar=str(EMBLEM)):
                 st.markdown("안녕하세요! 알레르기와 먹고 싶은 요리를 말씀해 주세요. "
                             "**왼쪽 예시 질문**을 누르면 바로 시작할 수 있어요.")
         for n, message in enumerate(messages):
@@ -592,7 +599,7 @@ with tab_ask:
             with st.chat_message("user"):
                 st.markdown(user["content"])
             reply = {"role": "assistant", "mode": mode}
-            with st.chat_message("assistant", avatar="🥗"):
+            with st.chat_message("assistant", avatar=str(EMBLEM)):
                 example = find_example(pending["example"], pending["question"])
                 try:
                     if mode == NEO4J:
