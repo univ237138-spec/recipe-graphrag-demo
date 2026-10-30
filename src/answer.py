@@ -16,11 +16,13 @@ import llm  # noqa: E402
 
 DISCLAIMER = "※ 포트폴리오용 데모이며 의료·영양 조언이 아닙니다. 레시피 원문 기준 판정이므로 실제 제품의 알레르기 표시를 꼭 확인하세요."
 VERDICT_TEXT = {"unsafe": "먹으면 안 됨", "caution": "주의 필요", "safe": "먹어도 됨 (원문 기준)"}
+VERDICT_RULE = ("그래프 판정: 물어본 알레르기의 '확정' 경로가 있으면 먹으면 안 됨, "
+                "'주의' 경로나 구성 불명 재료만 있으면 주의 필요, 둘 다 없으면 먹어도 됨 (레시피 원문 기준)")
 
 INSTRUCTIONS = """너는 레시피·알레르기 도우미다. evidence에 있는 근거만으로 한국어로 짧고 쉽게 설명한다.
 - 각 문단의 evidence_ids에는 그 문단을 뒷받침하는 근거 ID만 넣는다. 근거 없는 문단은 만들지 않는다.
 - evidence에 없는 요리·재료·수치를 지어내지 않는다. 추천 요리는 recommended에 있는 것만 말한다.
-- verdict가 있으면 그 판정과 다르게 말하지 않는다.
+- 판정 근거(V)가 있으면 그 판정과 다르게 말하지 않고, 먹어도 되는지 결론을 말하는 문단에는 V를 근거 ID로 단다.
 - 개수(N·S 근거)가 있으면 그 숫자를 그대로 말한다. 직접 세거나 바꾸지 않는다. 요리 목록은 evidence에 있는 요리만 말한다.
 - '주의'는 "제품에 따라 들어 있을 수 있음"이라는 뜻이다. 단정하지 말고 확인을 권한다.
 - 근거 경로(예: 무염버터 → 버터 → 유제품 → 우유)는 왜 그런지 한 줄로 풀어 준다.
@@ -51,7 +53,8 @@ def path_text(path_row):
     '새우젓국 → 새우류 → 새우 (확정, 원문: 새우젓국 15g, 법적 근거: 식품표시광고법 시행규칙 별표 2 Ⅰ.1.가)'."""
     chain = " → ".join(path_row["path"][1:])
     legal = legal_text(path_row)
-    return f"{chain} ({path_row['certainty']}, 원문: {path_row['raw']}" + (f", 법적 근거: {legal})" if legal else ")")
+    certainty = f"{path_row['certainty']}, " if path_row.get("certainty") else ""  # 분류 경로에는 확정/주의가 없다
+    return f"{chain} ({certainty}원문: {path_row['raw']}" + (f", 법적 근거: {legal})" if legal else ")")
 
 
 def allergen_summary(paths):
@@ -80,7 +83,8 @@ def recipe_summary(recipe):
 
 
 def build_evidence(result):
-    """근거에 ID를 붙인다: R=요리, P=알레르기 경로, X=제외한 요리, U=구성 불명 재료, S=요리의 알레르기 개수."""
+    """근거에 ID를 붙인다: R=요리, P=알레르기 경로, X=제외한 요리, U=구성 불명 재료, S=요리의 알레르기 개수,
+    V=그래프 판정 (먹어도 되나·이유 질문에서, 판정이 기댄 P·U 번호와 함께)."""
     evidence, counter = {}, [0]
 
     def add_paths(paths):
@@ -88,8 +92,11 @@ def build_evidence(result):
         for row in paths:
             counter[0] += 1
             key = f"P{counter[0]}"
-            evidence[key] = {"type": "allergen_path", "allergen": row["allergen"], "certainty": row["certainty"],
-                             "path": path_text(row)}
+            if "allergen" in row:
+                evidence[key] = {"type": "allergen_path", "allergen": row["allergen"], "certainty": row["certainty"],
+                                 "path": path_text(row)}
+            else:
+                evidence[key] = {"type": "category_path", "category": row["path"][-1], "path": path_text(row)}
             ids.append(key)
         return ids
 
@@ -119,13 +126,18 @@ def build_evidence(result):
         }
         exclude = result["conditions"]["exclude_allergens"]
         paths = [p for p in result["paths"] if not exclude or p["allergen"] in exclude]
-        add_paths(paths)
+        path_ids = add_paths(paths)
         if not exclude:  # 특정 알레르기를 묻지 않은 질문("알레르기 성분 몇 개야?")에만 전체 개수를 준다
             summary = allergen_summary(result["paths"])
             evidence["S"] = {"type": "allergen_summary", "definite": summary["확정"], "caution": summary["주의"],
                              "definite_count": len(summary["확정"]), "caution_count": len(summary["주의"])}
+        unknown_ids = []
         for index, unknown in enumerate(result["unknown_ingredients"], 1):
             evidence[f"U{index}"] = {"type": "unknown_composition", "ingredient": unknown["ingredient"], "raw": unknown["raw"]}
+            unknown_ids.append(f"U{index}")
+        if result.get("verdict"):  # 결론도 근거로 인용되게: 그래프 판정을 근거 목록 안에 둔다
+            evidence["V"] = {"type": "verdict", "allergens": exclude, "verdict": VERDICT_TEXT[result["verdict"]],
+                             "rule": VERDICT_RULE, "based_on": path_ids + unknown_ids}
     return evidence
 
 
@@ -134,7 +146,7 @@ def build_evidence(result):
 def build_request(question, result, evidence, model, reasoning_effort=None):
     payload = {"question": question, "intent": result["intent"],
                "exclude_allergens": result["conditions"]["exclude_allergens"],
-               "verdict": VERDICT_TEXT.get(result.get("verdict")), "evidence": evidence}
+               "evidence": evidence}
     request = llm.build_request(model, INSTRUCTIONS, json.dumps(payload, ensure_ascii=False), SCHEMA,
                                 "grounded_answer", max_output_tokens=6000)
     if reasoning_effort:

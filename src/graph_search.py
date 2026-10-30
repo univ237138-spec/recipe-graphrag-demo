@@ -37,6 +37,14 @@ RETURN r {.id, .name, .dishType, .method, .kcal, .sodium_mg, .protein_g, .fat_g,
        collect({ingredient: i.name, raw: h.raw, section: h.section}) AS ingredients
 """
 
+# 분류 조건으로 고른 요리의 근거: 재료 → 분류 → … → 물어본 분류
+RECIPE_CATEGORY_PATHS = """
+MATCH path = (r:Recipe {id: $id})-[h:HAS_INGREDIENT]->(i:Ingredient)-[:IS_A]->(:Category)-[:IS_A*0..]->(c:Category)
+WHERE c.id IN $categories
+RETURN c.id AS category, h.raw AS raw, h.section AS section, [n IN nodes(path) | coalesce(n.name, n.id)] AS path
+ORDER BY h.position
+"""
+
 # 조건(요리종류·조리법·영양·포함 분류)에 맞는 요리 + 제외 알레르기가 확정으로 들어 있는지
 CANDIDATES = f"""
 MATCH (r:Recipe)
@@ -139,12 +147,17 @@ def search(run, conditions, recipes):
     if intent in ("count", "list_all"):
         candidates, matched, caution_only = find_all(run, conditions)
         include = conditions.get("include_allergens", [])
+        categories = conditions.get("include_categories", [])
         items = []
         for n, item in enumerate(matched):
             paths = []
             if include and n < LIST_EVIDENCE_LIMIT:
                 paths, _ = recipe_evidence(run, item["id"], include)
                 paths = [p for p in paths if p["certainty"] == "확정"]
+            elif categories and n < LIST_EVIDENCE_LIMIT:  # 분류로 고른 요리도 왜 골랐는지 근거로 남긴다
+                seen = set()
+                paths = [p for p in run(RECIPE_CATEGORY_PATHS, id=item["id"], categories=categories)
+                         if not (p["category"] in seen or seen.add(p["category"]))]  # 분류마다 첫 경로 하나
             items.append({**item, "paths": paths})
         return {"intent": intent, "conditions": conditions, "count": len(matched), "items": items,
                 "caution_only": caution_only, "scope": len(candidates)}

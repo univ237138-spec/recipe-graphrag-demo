@@ -55,6 +55,17 @@ class LocalRunner:
                                  "provision": legal.get("provision"), "legal_condition": legal.get("condition") or None})
         return rows
 
+    def category_paths(self, recipe_id, categories):
+        rows = []
+        for m in self.by_recipe.get(recipe_id, []):
+            chain = self.ingredient_chain(m["ingredient"])
+            for k, category in enumerate(chain):
+                if category in categories:
+                    rows.append({"category": category, "raw": m["raw"], "section": m["section"],
+                                 "path": [self.recipes[recipe_id]["name"], m["ingredient"]]
+                                 + [self.label[c] for c in chain[:k + 1]]})
+        return rows
+
     def unknown(self, recipe_id):
         seen, rows = set(), []
         for m in self.by_recipe.get(recipe_id, []):
@@ -66,6 +77,8 @@ class LocalRunner:
     def __call__(self, query, **p):
         if query is graph_search.RECIPE_PATHS:
             return self.paths(p["id"])
+        if query is graph_search.RECIPE_CATEGORY_PATHS:
+            return self.category_paths(p["id"], p["categories"])
         if query is graph_search.RECIPE_UNKNOWN:
             return self.unknown(p["id"])
         if query is graph_search.RECIPE_DETAIL:
