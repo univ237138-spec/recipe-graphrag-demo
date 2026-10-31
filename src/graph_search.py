@@ -106,12 +106,16 @@ def verdict(paths, unknown, allergens):
     return "safe"
 
 
-def select(candidates, limit):
-    """추천 요리 고르기: 확정 알레르기가 있는 요리는 빼고, 경고 없는 요리를 먼저."""
-    allowed = [c for c in candidates if not c["definite"]]
-    allowed.sort(key=lambda c: (bool(c["caution"]) or bool(c["unknown"]), int(c["id"])))
+def select(candidates, limit, ranker=None):
+    """추천 요리 고르기: 확정 알레르기가 있는 요리는 빼고(안전 필터), 남은 요리에서 limit개.
+    ranker가 없으면 경고 없는 요리 먼저 → 레시피 번호순. 있으면 ranker(안전한 후보, limit)가 순서를 정한다
+    (rerank.Reranker: 질문 유사도 + 다양성). ranker는 안전 필터를 통과한 후보만 받는다."""
+    allowed = sorted((c for c in candidates if not c["definite"]), key=lambda c: int(c["id"]))
     excluded = [c for c in candidates if c["definite"]]
-    return allowed[:limit], excluded, len(allowed)
+    if ranker is None:
+        allowed.sort(key=lambda c: bool(c["caution"]) or bool(c["unknown"]))  # 안정 정렬이라 번호순은 유지
+        return allowed[:limit], excluded, len(allowed)
+    return ranker(allowed, limit), excluded, len(allowed)
 
 
 def find_all(run, conditions):
@@ -140,8 +144,9 @@ def find_all(run, conditions):
 LIST_EVIDENCE_LIMIT = 30  # 전부 찾기에서 근거 경로를 붙일 최대 요리 수
 
 
-def search(run, conditions, recipes):
-    """조건에 따라 조회한다. 결과는 answer.py가 근거와 답변으로 만든다."""
+def search(run, conditions, recipes, ranker=None):
+    """조건에 따라 조회한다. 결과는 answer.py가 근거와 답변으로 만든다.
+    ranker: 추천 질문에서만 쓰는 순서 정하기 (rerank.Reranker.for_question). 없으면 레시피 번호순."""
     intent = conditions["intent"]
     exclude = conditions["exclude_allergens"]
     if intent in ("count", "list_all"):
@@ -168,7 +173,7 @@ def search(run, conditions, recipes):
             max_kcal=conditions["max_kcal"], max_sodium=conditions["max_sodium_mg"],
             include=conditions["include_categories"], exclude=exclude,
         )
-        chosen, excluded, total = select(candidates, conditions["limit"])
+        chosen, excluded, total = select(candidates, conditions["limit"], ranker)
         recommended = []
         for item in chosen:
             paths, unknown = recipe_evidence(run, item["id"], exclude) if (item["caution"] or item["unknown"]) else ([], [])
@@ -179,7 +184,8 @@ def search(run, conditions, recipes):
             excluded_examples.append({**item, "paths": [p for p in paths if p["certainty"] == "확정"]})
         return {"intent": intent, "conditions": conditions, "recommended": recommended,
                 "excluded_examples": excluded_examples, "matched": len(candidates),
-                "allowed": total, "excluded_count": len(excluded)}
+                "allowed": total, "excluded_count": len(excluded), "reranked": ranker is not None,
+                "preference": getattr(ranker, "preference", None), "preference_terms": getattr(ranker, "terms", None)}
 
     recipe_id, suggestions = resolve_recipe(conditions["recipe_name"], recipes)
     if recipe_id is None:

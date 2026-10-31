@@ -29,6 +29,7 @@ import load_neo4j  # noqa: E402
 import local_graph  # noqa: E402
 import query_parser  # noqa: E402
 import recipe_graph  # noqa: E402
+import rerank  # noqa: E402
 
 PROVISIONS_PATH = ROOT / "data" / "regulation" / "provisions.json"
 CATEGORIES_PATH = ROOT / "ontology" / "categories.csv"
@@ -77,6 +78,13 @@ EXAMPLE_GROUPS = [
     ("🍽️ 조건에 맞게 추천", [
         {"key": "C2", "label": "🦀 갑각류 · 반찬 3개 추천",
          "question": "갑각류 알레르기가 있어. 반찬 3개 추천해줘",
+         "conditions": {"intent": "recommend", "dish_type": "반찬", "exclude_allergens": ["게", "새우"], "limit": 3}},
+        # 리랭킹 비교용: 조건은 위 C2와 똑같고 말만 다르다 (리랭킹이 꺼져 있으면 셋 다 같은 요리)
+        {"key": "C3", "label": "🌶️ 갑각류 · 매콤한 반찬 3개 추천",
+         "question": "갑각류 알레르기가 있는데, 매콤한 반찬 3개 추천해줘",
+         "conditions": {"intent": "recommend", "dish_type": "반찬", "exclude_allergens": ["게", "새우"], "limit": 3}},
+        {"key": "C4", "label": "🧒 갑각류 · 아이가 먹기 좋은 반찬 3개 추천",
+         "question": "갑각류 알레르기 있는 아이가 먹기 좋은 반찬 3개 추천해줘",
          "conditions": {"intent": "recommend", "dish_type": "반찬", "exclude_allergens": ["게", "새우"], "limit": 3}},
         {"key": "R1", "label": "🍰 우유·달걀·밀·대두 · 후식 3개 추천",
          "question": "우유, 달걀, 밀, 대두 알레르기가 있어. 후식 3개 추천해줘",
@@ -138,6 +146,7 @@ def load_data():
     graph, recipes, mapping, mentions = recipe_graph.load_all()
     return {"graph": graph, "recipes": recipes, "mapping": mapping, "mentions": mentions,
             "runner": local_graph.LocalRunner(graph, recipes, mapping, mentions),
+            "reranker": rerank.load(recipes=recipes),  # 레시피 임베딩 파일이 없으면 None → 추천은 번호순
             "expected": recipe_graph.expected_allergens(mentions, mapping, graph)}
 
 
@@ -199,6 +208,11 @@ with st.sidebar:
                             help=None if has_llm else "OpenAI 키가 없으면 예시 질문만 동작합니다 (LLM 설명 없음).")
         if not has_llm:
             st.caption("키 없음 → 예시 질문만 동작")
+    has_reranker = DATA["reranker"] is not None
+    use_rerank = st.toggle("리랭킹 (추천 순서: 질문 유사도 + 다양성)", value=has_reranker, disabled=not has_reranker,
+                           key="use_rerank",
+                           help="추천 질문에서, 그래프가 거른 안전한 후보 안에서 순서만 다시 정합니다. "
+                                "끄면 경고 없는 요리 먼저, 그다음 레시피 번호순. 안전 판단은 켜든 끄든 그래프가 합니다.")
 
 
 # ---------------------------------------------------------------- 질문 처리
@@ -219,7 +233,13 @@ def run_graphrag(run, question, example):
         else:
             raise llm.LLMError("LLM 없이는 예시 질문만 처리할 수 있습니다. 왼쪽에서 예시 질문을 고르거나 OpenAI 키를 넣으세요.")
         status.write("② 그래프 조회 (Cypher: 확정 알레르기 경로가 있으면 제외)")
-        result = graph_search.search(run, cond, RECIPES)
+        ranker = None
+        if use_rerank and DATA["reranker"] and cond["intent"] == "recommend":
+            # 취향 확장·임베딩을 못 만들면 None → 번호순 (예시 질문은 미리 저장해 둬서 키 없이도 된다)
+            ranker = DATA["reranker"].for_question(question, cond["exclude_allergens"], model)
+        result = graph_search.search(run, cond, RECIPES, ranker)
+        if result.get("reranked"):
+            status.write("②+ 리랭킹 (안전한 후보 안에서 질문 유사도 + 다양성으로 순서 정하기)")
         status.write("③ 안전 검사 (추천 요리를 별도 쿼리로 다시 확인)")
         notes = answer.safety_check(run, result) if result.get("not_found") is None else []
         paragraphs, error = None, None
@@ -231,7 +251,8 @@ def run_graphrag(run, question, example):
                 paragraphs = answer.validate_paragraphs(reply, evidence)
             except llm.LLMError as exc:
                 error = str(exc)
-        status.update(label="완료: ① 질문 해석 → ② 그래프 조회 → ③ 안전 검사" + (" → ④ 설명" if paragraphs else ""),
+        status.update(label="완료: ① 질문 해석 → ② 그래프 조회" + (" → 리랭킹" if result.get("reranked") else "")
+                            + " → ③ 안전 검사" + (" → ④ 설명" if paragraphs else ""),
                       state="complete")
     return {"conditions": cond, "result": result, "paragraphs": paragraphs, "notes": notes, "llm_error": error}
 
@@ -294,9 +315,13 @@ def show_graphrag(output):
                        + ", ".join(c["name"] for c in result["caution_only"][:10]))
     elif result["intent"] == "recommend":
         st.markdown(f"조건에 맞는 요리 **{result['matched']}개** 중 제외 알레르기(확정)가 없는 요리 **{result['allowed']}개**")
+        st.caption(f"↕️ 순서: {answer.order_text(result)}")
         for n, item in enumerate(result["recommended"], 1):
             with st.container(border=True):
-                st.markdown(f"**{n}. {item['name']}** · {answer.recipe_summary(item)}")
+                score = f" · 질문 유사도 `{item['relevance']:.2f}`" if "relevance" in item else ""
+                if item.get("matched_terms"):  # 하이브리드 리랭킹의 근거: 확장 말 중 이 레시피에 실제로 있는 것
+                    score += " · 레시피에 있는 말: " + ", ".join(item["matched_terms"])
+                st.markdown(f"**{n}. {item['name']}** · {answer.recipe_summary(item)}{score}")
                 for path in item["paths"]:
                     st.caption(f"⚠️ 주의: {answer.path_text(path)}")
                 for unknown in item["unknown_ingredients"]:
@@ -413,7 +438,11 @@ def chat_lead(output):
         if not n:
             return "조건에 맞는 요리를 찾지 못했어요."
         head = f"{exclude} 알레르기가 확정으로 든 요리는 빼고, " if exclude else ""
-        return f"{head}조건에 맞는 요리 **{n}개**를 추천해 드릴게요. 추천 전에 그래프로 한 번 더 확인했어요."
+        order = ""
+        if r.get("reranked"):
+            order = (f" 안전한 요리 {r['allowed']}개 중 ‘{r['preference']}’에 가까운 요리부터, 서로 겹치지 않게 골랐어요."
+                     if r.get("preference") else f" 안전한 요리 {r['allowed']}개 중 서로 겹치지 않게 골랐어요.")
+        return f"{head}조건에 맞는 요리 **{n}개**를 추천해 드릴게요.{order} 추천 전에 그래프로 한 번 더 확인했어요."
     recipe = r["recipe"]["name"]
     if r.get("verdict"):
         shown = [p for p in r["paths"] if p["allergen"] in cond["exclude_allergens"]]

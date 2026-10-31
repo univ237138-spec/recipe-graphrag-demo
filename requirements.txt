@@ -3,3 +3,4 @@ rdflib>=7.6     # 온톨로지 읽기
 owlrl>=7.6      # OWL RL 추론
 neo4j>=6.4      # Neo4j 모드에서만 사용 (데모 모드는 연결하지 않음)
 certifi
+numpy           # 추천 리랭킹 (임베딩 유사도·다양성)

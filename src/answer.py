@@ -84,7 +84,7 @@ def recipe_summary(recipe):
 
 def build_evidence(result):
     """근거에 ID를 붙인다: R=요리, P=알레르기 경로, X=제외한 요리, U=구성 불명 재료, S=요리의 알레르기 개수,
-    V=그래프 판정 (먹어도 되나·이유 질문에서, 판정이 기댄 P·U 번호와 함께)."""
+    V=그래프 판정 (먹어도 되나·이유 질문에서, 판정이 기댄 P·U 번호와 함께), O=추천 순서를 정한 방법 (리랭킹했을 때)."""
     evidence, counter = {}, [0]
 
     def add_paths(paths):
@@ -104,11 +104,17 @@ def build_evidence(result):
         for item in result["recommended"]:
             evidence[f"R{item['id']}"] = {"type": "recommended_recipe", "name": item["name"],
                                           "summary": recipe_summary(item),
+                                          **({"matched_terms": item["matched_terms"]} if item.get("matched_terms") else {}),
                                           "caution_paths": add_paths(item["paths"]),
                                           "unknown_ingredients": [u["ingredient"] for u in item["unknown_ingredients"]]}
         for item in result["excluded_examples"]:
             evidence[f"X{item['id']}"] = {"type": "excluded_recipe", "name": item["name"],
                                           "reason_paths": add_paths(item["paths"][:2])}
+        if result.get("reranked"):  # 순서의 뜻: 질문과 비슷한 순서일 뿐, 맛·대상을 확인한 것은 아니다
+            evidence["O"] = {"type": "ranking", "method": order_text(result),
+                             "note": "질문 속 취향 문장과 레시피 글(재료·조리법)이 비슷한 순서다. 맛이나 대상(매콤함, 아이용 등)을 "
+                                     "확인한 결과가 아니므로, 재료로 확인되지 않은 특징은 단정하지 않는다. "
+                                     "추천 요리의 matched_terms는 취향을 풀어 쓴 말 중 그 레시피 재료·조리 순서에 실제로 있는 말이다."}
     elif result["intent"] in ("count", "list_all"):
         evidence["N"] = {"type": "count", "count": result["count"], "scope": result["scope"],
                          "include_allergens": result["conditions"].get("include_allergens", []),
@@ -201,6 +207,17 @@ def condition_text(conditions):
     return ", ".join(parts) or "조건 없음"
 
 
+def order_text(result):
+    """추천 순서를 무엇으로 정했는지 (리랭킹은 안전한 후보 안에서 순서만 바꾼다)."""
+    if not result.get("reranked"):
+        return "경고 없는 요리 먼저, 그다음 레시피 번호순 (리랭킹 꺼짐)"
+    if result.get("preference"):
+        terms = result.get("preference_terms") or []
+        expanded = f"(→ {', '.join(terms[:6])}{' …' if len(terms) > 6 else ''})" if terms else ""
+        return f"안전한 후보 안에서 취향 ‘{result['preference']}’{expanded}에 가까운 순(임베딩 유사도 + 레시피 속 확장 말 일치) + 다양성(MMR) (리랭킹)"
+    return "질문에 취향이 없어, 안전한 후보 안에서 서로 겹치지 않게 고름 (리랭킹: 다양성만)"
+
+
 def render_matches(result):
     """세기·전부 찾기 출력: 개수 + 전체 목록 + 근거 경로 + '주의'로만 들어 있는 요리."""
     lines = [f"[개수] {condition_text(result['conditions'])}: {result['count']}개 (조건에 맞는 요리 {result['scope']}개 중)"]
@@ -235,10 +252,14 @@ def render(result, paragraphs=None, safety_notes=()):
         lines.extend(render_matches(result))
     elif result["intent"] == "recommend":
         lines.append(f"[추천] 조건에 맞는 요리 {result['matched']}개 중 제외 알레르기(확정)가 없는 요리 {result['allowed']}개")
+        lines.append(f"[순서] {order_text(result)}")
         if not result["recommended"]:
             lines.append("  조건에 맞는 요리가 없습니다.")
         for n, item in enumerate(result["recommended"], 1):
-            lines.append(f"  {n}. {item['name']} ({recipe_summary(item)}) [R{item['id']}]")
+            score = f" · 질문 유사도 {item['relevance']:.2f}" if "relevance" in item else ""
+            if item.get("matched_terms"):
+                score += f" · 레시피에 있는 말: {', '.join(item['matched_terms'])}"
+            lines.append(f"  {n}. {item['name']} ({recipe_summary(item)}){score} [R{item['id']}]")
             for path in item["paths"]:
                 lines.append(f"     ⚠ 주의: {path_text(path)}")
             for unknown in item["unknown_ingredients"]:
